@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# micam runtime data (Docker bind mounts / recordings)
+go2rtc/*
+!go2rtc/.gitkeep
+miloco/*
+!miloco/.gitkeep
+recordings/*
+!recordings/.gitkeep
