@@ -16,7 +16,7 @@ import cv2
 
 def process_frame(frame, ts_ms: int) -> None:
     # TODO: your own logic goes here (AI inference, saving, etc.)
-    print(f"[{ts_ms}] frame {frame.shape[1]}x{frame.shape[0]}")
+    pass
 
 
 def main() -> None:
@@ -35,15 +35,31 @@ def main() -> None:
     if not cap.isOpened():
         raise SystemExit(f"cannot open stream: {url}")
 
+    frame_count = 0
+    fps = 0.0
+    stats_at = time.monotonic()
+
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 time.sleep(0.5)
                 continue
+
             process_frame(frame, int(time.time() * 1000))
 
+            frame_count += 1
+            now = time.monotonic()
+            if now - stats_at >= 1.0:
+                fps = frame_count / (now - stats_at)
+                print(f"{frame.shape[1]}x{frame.shape[0]} @ {fps:.1f} fps")
+                frame_count = 0
+                stats_at = now
+
             if args.display:
+                label = f"{frame.shape[1]}x{frame.shape[0]} @ {fps:.1f} fps"
+                cv2.putText(frame, label, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                            (0, 255, 0), 2)
                 cv2.imshow(args.stream, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
