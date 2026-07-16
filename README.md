@@ -53,7 +53,7 @@ docker compose logs -f # 出问题时先看这里
 
 ## 三、首次配置 Miloco，绑定账号，拿到 CAMERA_ID
 
-1. 浏览器打开 `https://<跑Docker的主机IP>:8000`（自签证书，浏览器会警告，选择"继续访问"）。
+1. 浏览器打开 `http://<跑Docker的主机IP>:8000`（**注意是 http，不是 https** —— 实测这个服务是纯 HTTP，没有 TLS；用 https 访问会得到 `ERR_SSL_PROTOCOL_ERROR`）。
 2. 首次进入会要求设置密码 —— 输入你刚才生成哈希时用的**明文密码**（不是哈希值）。
 3. 登录后按提示"绑定小米账号"，选择账号所在地区，登录后会自动拉取米家下的设备列表。
 4. 找摄像头的 `CAMERA_ID`（即设备 DID）：在 Miloco 网页里打开浏览器开发者工具（F12）→ Network 面板，点击/刷新对应摄像头卡片，观察请求里携带的 `did` 字段，把它填进 `.env` 的 `CAMERA_ID`。
@@ -122,6 +122,9 @@ curl "http://127.0.0.1:1984/api/frame.jpeg?src=cam0" -o snapshot.jpg
 |---|---|
 | Miloco 网页里摄像头就显示离线 | 摄像头和跑 Docker 的主机必须在同一网段，小米大部分 IoT 设备的 P2P 不支持跨子网；先确认两者 IP 前缀一致 |
 | `docker compose logs miloco` 报证书/网络错误 | 换凭证这一步需要能访问小米云端，检查主机出网是否正常、DNS 是否正常 |
+| 浏览器打开 `https://<IP>:8000` 报 `ERR_SSL_PROTOCOL_ERROR` | Miloco 是纯 HTTP 服务，没有 TLS，改用 `http://` 访问 |
+| `miloco` 一直 `Restarting`，日志里有 `FastMCP() no longer accepts on_duplicate_tools` 和 `address already in use` | `:main` 是滚动 tag，上游依赖没锁版本，被新版 `fastmcp` 库带崩了；把 `docker-compose.yml` 里 `miloco` 的镜像换成一个日期锁定的 tag（如 `260618`），去 https://github.com/miiot/miloco/pkgs/container/miloco 查最新可用的 dated tag |
+| `micam1` 一直 `Restarting`，日志是 `ERROR - Camera ID is required` | `.env` 里 `CAMERA_ID` 还没填 —— 这是预期行为，先完成第三步的账号绑定和 DID 查找 |
 | go2rtc 里看不到对应的 stream / 有 stream 但一直黑屏 | 看 `docker compose logs micam1`，确认 `.env` 里 `CAMERA_ID`、`RTSP_URL` 没填错；`VIDEO_CODEC` 试试从 `hevc` 换成 `h264`（不同型号输出编码不同） |
 | 镜像拉不下来 / 超时 | `ghcr.nju.edu.cn` 是国内镜像，若不可达把 `docker-compose.yml` 里三个 `image:` 换成注释掉的 `ghcr.io/...` 那一行 |
 | 改了 `.env` 不生效 | 修改环境变量后必须 `docker compose up -d` 重建容器，`restart` 不够 |
