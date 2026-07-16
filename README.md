@@ -83,20 +83,31 @@ ffprobe rtsp://<主机IP>:8554/cam0
 
 ## 六、二次开发示例
 
-拿到标准 RTSP 地址之后，怎么用完全和摄像头品牌无关了。
+拿到标准 RTSP 地址之后，怎么用完全和摄像头品牌无关了 —— OpenCV 的 `cv2.VideoCapture` 能直接打开它，跟摄像头是不是小米的没有任何关系。
 
-**FFmpeg 按时间分段录制（MP4）：**
-
-```bash
-./scripts/record_segments.sh cam0 ./recordings/cam0 600   # 每 600 秒一段，stream copy 不转码
-```
-
-**OpenCV 读帧做简单移动侦测（可在此基础上接自己的 AI 模型）：**
+**OpenCV 读帧（主要用法）：**
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r scripts/requirements.txt
 python scripts/capture_frame.py --stream cam0
+```
+
+`scripts/capture_frame.py` 只做了最基础的事：连上 `rtsp://127.0.0.1:8554/cam0`，循环 `cap.read()` 拿到 `frame`（BGR numpy 数组）和毫秒级时间戳，自己的检测/识别逻辑写进 `process_frame()` 里就行。核心代码只有几行：
+
+```python
+cap = cv2.VideoCapture("rtsp://127.0.0.1:8554/cam0", cv2.CAP_FFMPEG)
+while True:
+    ok, frame = cap.read()
+    if not ok:
+        continue
+    # frame 就是这一帧，直接喂给你自己的模型/逻辑
+```
+
+**如果还需要落盘存证据（可选，非必需）：**
+
+```bash
+./scripts/record_segments.sh cam0 ./recordings/cam0 600   # 每 600 秒一段，stream copy 不转码
 ```
 
 **截图单帧（用 go2rtc 自带的 HTTP 接口，不用装额外工具）：**
