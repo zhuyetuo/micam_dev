@@ -28,7 +28,16 @@ def main() -> None:
                          help="show a live preview window (default on)")
     parser.add_argument("--no-display", dest="display", action="store_false",
                          help="skip cv2.imshow, e.g. on a headless server")
+    parser.add_argument("--resize", metavar="WxH", default=None,
+                         help="downscale each frame to WxH before processing, e.g. 1280x720. "
+                              "The camera only offers a few fixed quality tiers (subtype=0-5), "
+                              "not arbitrary resolutions - use this for an exact target size.")
     args = parser.parse_args()
+
+    resize_to = None
+    if args.resize:
+        w, h = args.resize.lower().split("x")
+        resize_to = (int(w), int(h))
 
     url = f"rtsp://{args.host}:{args.port}/{args.stream}"
     cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
@@ -45,6 +54,9 @@ def main() -> None:
             if not ok:
                 time.sleep(0.5)
                 continue
+
+            if resize_to:
+                frame = cv2.resize(frame, resize_to)
 
             process_frame(frame, int(time.time() * 1000))
 

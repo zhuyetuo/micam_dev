@@ -48,12 +48,19 @@ streams:
 
 如果 WebUI 向导对你的账号/网络环境走不通，也可以直接手动编辑 `go2rtc/go2rtc.yaml` 加上面这样一行 `streams`，`user_id`/`token` 从向导登录后自动生成的段里复制，`did`（设备 ID）和 `model` 型号是唯一需要你自己确认的两项。
 
-**画质档位**：默认可能协商到低清子码流。在 URL 后加 `&subtype=hd`（或 `sd`，或数字 `0`-`5`）指定档位，比如：
+**画质档位**：`subtype` 数字 `0`-`5` 对应摄像头固件里预设的几档画质（不是任意分辨率），go2rtc 默认用 `2`。文档原话："some new cameras have HD quality at number 3"——`chuangmi.camera.039c01`（小米智能摄像机2 云台版）实测：
+
+| `subtype` | 分辨率 |
+|---|---|
+| `2`（默认） | 864x480 |
+| `3` | 2560x1440（这台的真实主码流，约 20fps） |
 
 ```yaml
 streams:
-  cam0: "xiaomi://1234567890:cn@192.168.2.xx?did=987654321&model=chuangmi.camera.039c01&subtype=hd"
+  cam0: "xiaomi://1234567890:cn@192.168.2.xx?did=987654321&model=chuangmi.camera.039c01&subtype=3"
 ```
+
+注意：帧率(fps)由摄像头固件按当前画质档位自己决定，这一层调不了；`subtype` 只影响分辨率。如果下游需要固定分辨率（比如 720p），摄像头本身没有这一档，用 `scripts/capture_frame.py --resize 1280x720` 在软件层缩放最省事、结果最稳定。
 
 改完配置后重启使其生效：
 
