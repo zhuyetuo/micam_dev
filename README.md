@@ -82,7 +82,7 @@ pip install -r scripts/requirements.txt
 python scripts/capture_frame.py --stream cam0
 ```
 
-`scripts/capture_frame.py` 只做了最基础的事：连上 `rtsp://127.0.0.1:8554/cam0`，循环 `cap.read()` 拿到 `frame`（BGR numpy 数组）和毫秒级时间戳，自己的检测/识别逻辑写进 `process_frame()` 里就行。核心代码只有几行：
+`scripts/capture_frame.py` 只做了最基础的事：连上 `rtsp://127.0.0.1:8554/cam0`，循环 `cap.read()` 拿到 `frame`（BGR numpy 数组）和毫秒级时间戳，自己的检测/识别逻辑写进 `process_frame()` 里就行。默认会弹一个窗口实时显示画面（按 `q` 退出）；如果是在没有图形界面的服务器上跑，加 `--no-display`。核心代码只有几行：
 
 ```python
 cap = cv2.VideoCapture("rtsp://127.0.0.1:8554/cam0", cv2.CAP_FFMPEG)
