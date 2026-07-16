@@ -2,24 +2,22 @@
 
 小米摄像头「截流」二次开发工程：不刷机、不破坏米家绑定，在局域网内把小米私有 P2P 视频流转换成标准 RTSP，供 FFmpeg / OpenCV / 任意 NVR 使用。
 
-技术栈基于两个开源项目：
-
-- [`XiaoMi/xiaomi-miloco`](https://github.com/XiaoMi/xiaomi-miloco)（社区镜像 `miiot/miloco`）：向小米云端换取该摄像头的短时 P2P 凭证，之后在局域网内直连摄像头拉流，只有换凭证这一步需要外网。
-- [`miiot/micam`](https://github.com/miiot/micam)：桥接服务，每路摄像头一个实例，把 miloco 吐出的裸流转推进 go2rtc。
-- [`AlexxIT/go2rtc`](https://github.com/AlexxIT/go2rtc)：标准 RTSP/WebRTC/HLS 服务器，对外暴露 `rtsp://.../cam0` 这样的标准地址。
+技术栈：只用 [`AlexxIT/go2rtc`](https://github.com/AlexxIT/go2rtc) 一个服务。go2rtc 内置了小米摄像头的 `xiaomi://` 源，登录一次小米账号后由它自己去云端换取该摄像头的短时 P2P 凭证，然后在局域网内直连摄像头拉流，对外暴露标准 RTSP/WebRTC/HLS 地址。
 
 ```
-小米摄像头 ⇄(局域网 P2P)⇄ miloco ──(裸流)──▶ micam ──(RTSP 推流)──▶ go2rtc ──▶ FFmpeg / OpenCV / NVR / HomeAssistant
-                 ▲
-                 └─(仅换凭证时)── 小米云端
+小米摄像头 ⇄(局域网 P2P)⇄ go2rtc ──▶ FFmpeg / OpenCV / NVR / HomeAssistant
+                ▲
+                └─(仅换凭证时)── 小米云端
 ```
+
+> 之前的方案里额外套了 miloco + micam 两层桥接，本工程已经去掉了 —— 那套架构依赖 miloco 内置的 AI/视觉大模型子服务，即使你完全用不上 AI 功能，也会因为缺少本地模型服务而反复崩溃重启。go2rtc 原生支持小米摄像头之后，直接更简单更稳。参考：[go2rtc issue #1982 兼容列表](https://github.com/AlexxIT/go2rtc/issues/1982)、[miiot/micam 相关讨论](https://github.com/miiot/micam/discussions/29)。
 
 ## 一、前置条件
 
 - Docker + Docker Compose v2（`docker compose version` 能跑通）
 - 摄像头、跑 Docker 的主机、开发机三者在**同一个二层局域网/网段**（小米设备的 P2P 大多不支持跨网段，这是最常见的失败原因，见下方调试章节）
 - 摄像头已在米家 App 中正常绑定、可正常查看直播
-- 一个用于开发调试的、独立于日常使用的米家账号更安全（可选，但推荐）
+- 摄像头型号在 go2rtc 的 [兼容列表](https://github.com/AlexxIT/go2rtc/issues/1982) 里 —— 小米智能摄像机2 云台版（`chuangmi.camera.039c01`）已确认完全支持（`cs2+tcp`，`hevc`+`opus`）；具体型号可在米家 App 设备详情页"更多信息"里核对
 
 ## 二、快速部署
 
@@ -27,47 +25,38 @@
 git clone <this repo> micam_dev   # 或直接在本仓库目录操作
 cd micam_dev
 cp .env.example .env
-```
-
-编辑 `.env`，先填两项，其余先留空：
-
-```env
-MILOCO_PASSWORD=   # 下一步生成
-CAMERA_ID=         # 稍后从 Miloco 网页里找
-```
-
-生成 `MILOCO_PASSWORD`（自己随便定一个明文密码，工具会转成 md5 小写）：
-
-```bash
-./scripts/gen_password.sh "your-chosen-password"
-# 把输出的哈希值填进 .env 的 MILOCO_PASSWORD
-```
-
-启动：
-
-```bash
 docker compose up -d
-docker compose ps      # 三个容器都应为 running/healthy
+docker compose ps      # go2rtc 应为 running
 docker compose logs -f # 出问题时先看这里
 ```
 
-## 三、首次配置 Miloco，绑定账号，拿到 CAMERA_ID
+## 三、添加摄像头（在 go2rtc WebUI 里操作，不用改配置文件）
 
-1. 浏览器打开 `http://<跑Docker的主机IP>:8000`（**注意是 http，不是 https** —— 实测这个服务是纯 HTTP，没有 TLS；用 https 访问会得到 `ERR_SSL_PROTOCOL_ERROR`）。
-2. 首次进入会要求设置密码 —— 输入你刚才生成哈希时用的**明文密码**（不是哈希值）。
-3. 登录后按提示"绑定小米账号"，选择账号所在地区，登录后会自动拉取米家下的设备列表。
-4. 找摄像头的 `CAMERA_ID`（即设备 DID）：在 Miloco 网页里打开浏览器开发者工具（F12）→ Network 面板，点击/刷新对应摄像头卡片，观察请求里携带的 `did` 字段，把它填进 `.env` 的 `CAMERA_ID`。
-5. 确认该摄像头在 Miloco 页面里显示为在线状态，再进行下一步——如果这里就显示离线，先解决这个问题，RTSP 侧不会有更多线索。
+1. 浏览器打开 `http://<跑Docker的主机IP>:1984`。
+2. 点击 **Add** → 选择 **Xiaomi**。
+3. 输入小米账号用户名密码登录；如果触发风控会要求邮箱/短信验证码或图形验证码，按提示完成。
+4. 登录成功后账号会被加入，页面上可以"加载账号下的摄像头"，选中你要用的这台，go2rtc 会自动生成对应的 stream。
+5. 添加成功后，go2rtc 会把账号 token 写进 `go2rtc/go2rtc.yaml` 的 `xiaomi:` 段，把 stream 写进 `streams:` 段，类似：
 
-改完 `.env` 后重启 micam 让配置生效：
+```yaml
+xiaomi:
+  1234567890: V1:xxxxxxxx    # 账号 token，go2rtc 自动写入，不用手填
+
+streams:
+  cam0: "xiaomi://1234567890:cn@192.168.2.xx?did=987654321&model=chuangmi.camera.039c01"
+```
+
+如果 WebUI 向导对你的账号/网络环境走不通，也可以直接手动编辑 `go2rtc/go2rtc.yaml` 加上面这样一行 `streams`，`user_id`/`token` 从向导登录后自动生成的段里复制，`did`（设备 ID）和 `model` 型号是唯一需要你自己确认的两项。
+
+改完配置后重启使其生效：
 
 ```bash
-docker compose up -d
+docker compose restart go2rtc
 ```
 
 ## 四、验证 RTSP 流
 
-- go2rtc 的管理页面：`http://<主机IP>:1984`，Streams 里应该能看到 `cam0`（对应 `.env` 里 `RTSP_URL` 的路径名），有画面缩略图即代表打通了。
+- go2rtc 管理页面 `http://<主机IP>:1984` 的 Streams 列表里应该能看到 `cam0`，有画面缩略图即代表打通了。
 - 命令行验证：
 
 ```bash
@@ -75,15 +64,15 @@ ffprobe rtsp://<主机IP>:8554/cam0
 # 或者直接用 VLC / ffplay 打开同样的地址看画面
 ```
 
-打不开就去看 `docker compose logs -f micam1`，常见报错见下方"调试"章节。
+打不开就去看 `docker compose logs -f go2rtc`，常见报错见下方"调试"章节。
 
 ## 五、多摄像头
 
-复制 `docker-compose.yml` 里的 `micam2` 块（改名 `micam3` ...），并在 `.env` 补上对应的 `CAMERA_3_ID` / `CAMERA_3_RTSP_URL`，把 `scale: 0` 改成 `scale: 1`，再 `docker compose up -d`。
+同一个账号下的其他摄像头，回到 WebUI 的 Xiaomi 添加向导里"加载摄像头"列表继续选,或者直接在 `go2rtc/go2rtc.yaml` 的 `streams:` 段里再加一行(换一下 `did`/`model`/流名),`docker compose restart go2rtc` 生效。不需要额外容器。
 
 ## 六、二次开发示例
 
-拿到标准 RTSP 地址之后，怎么用完全和摄像头品牌无关了 —— OpenCV 的 `cv2.VideoCapture` 能直接打开它，跟摄像头是不是小米的没有任何关系。
+拿到标准 RTSP 地址之后，怎么用完全和摄像头品牌无关了 —— OpenCV 的 `cv2.VideoCapture` 能直接打开它。
 
 **OpenCV 读帧（主要用法）：**
 
@@ -120,24 +109,20 @@ curl "http://127.0.0.1:1984/api/frame.jpeg?src=cam0" -o snapshot.jpg
 
 | 现象 | 排查方向 |
 |---|---|
-| Miloco 网页里摄像头就显示离线 | 摄像头和跑 Docker 的主机必须在同一网段，小米大部分 IoT 设备的 P2P 不支持跨子网；先确认两者 IP 前缀一致 |
-| `docker compose logs miloco` 报证书/网络错误 | 换凭证这一步需要能访问小米云端，检查主机出网是否正常、DNS 是否正常 |
-| 浏览器打开 `https://<IP>:8000` 报 `ERR_SSL_PROTOCOL_ERROR` | Miloco 是纯 HTTP 服务，没有 TLS，改用 `http://` 访问 |
-| `miloco` 一直 `Restarting`，日志里有 `FastMCP() no longer accepts on_duplicate_tools` 和 `address already in use` | `:main` 是滚动 tag，上游依赖没锁版本，被新版 `fastmcp` 库带崩了；把 `docker-compose.yml` 里 `miloco` 的镜像换成一个日期锁定的 tag（如 `260618`），去 https://github.com/miiot/miloco/pkgs/container/miloco 查最新可用的 dated tag |
-| `micam1` 一直 `Restarting`，日志是 `ERROR - Camera ID is required` | `.env` 里 `CAMERA_ID` 还没填 —— 这是预期行为，先完成第三步的账号绑定和 DID 查找 |
-| go2rtc 里看不到对应的 stream / 有 stream 但一直黑屏 | 看 `docker compose logs micam1`，确认 `.env` 里 `CAMERA_ID`、`RTSP_URL` 没填错；`VIDEO_CODEC` 试试从 `hevc` 换成 `h264`（不同型号输出编码不同） |
-| 镜像拉不下来 / 超时 | `ghcr.nju.edu.cn` 是国内镜像，若不可达把 `docker-compose.yml` 里三个 `image:` 换成注释掉的 `ghcr.io/...` 那一行 |
-| 改了 `.env` 不生效 | 修改环境变量后必须 `docker compose up -d` 重建容器，`restart` 不够 |
-| 想确认密码哈希对不对 | `./scripts/gen_password.sh "同一个明文密码"`，结果应与 `.env` 里 `MILOCO_PASSWORD` 完全一致（小写） |
+| WebUI 里加了账号，但摄像头列表是空的/加载失败 | 摄像头和跑 Docker 的主机必须在同一网段，小米大部分 IoT 设备的 P2P 不支持跨子网；先在米家 App 里确认摄像头本身在线 |
+| stream 有画面但一直黑屏/连不上 | 看 `docker compose logs -f go2rtc`；确认 `go2rtc.yaml` 里 `did`/`model` 没抄错 |
+| 花屏、卡顿、偶尔断流 | 尝试在 stream URL 后加 `&subtype=sd` 换成低清流测试是否网络带宽问题；也可能是该型号已知的兼容性限制，去 [go2rtc issue #1982](https://github.com/AlexxIT/go2rtc/issues/1982) 看有没有已知问题 |
+| 镜像拉不下来 / 超时 | `ghcr.nju.edu.cn` 是国内镜像，若不可达把 `docker-compose.yml` 里的 `image:` 换成注释掉的 `ghcr.io/...` 那一行 |
+| 改了 `go2rtc.yaml` 不生效 | `docker compose restart go2rtc` 让配置重新加载 |
 
 ## 八、已知限制
 
-- 这套方案依赖社区对小米私有协议的逆向（miloco/micam），小米若更改协议，可能出现短暂失效，需等上游更新镜像。
-- 换凭证阶段需要一次外网访问；之后的取流是纯局域网 P2P。
+- 并非所有小米摄像头型号都支持，以 [go2rtc issue #1982](https://github.com/AlexxIT/go2rtc/issues/1982) 的兼容列表为准。
+- 每次连接摄像头都需要一次访问小米云端换取 P2P 密钥；之后的取流是纯局域网 P2P。
 - 摄像头与 Docker 主机跨网段基本不可用。
 
 ## 参考
 
-- <https://github.com/XiaoMi/xiaomi-miloco>
-- <https://github.com/miiot/micam>
 - <https://github.com/AlexxIT/go2rtc>
+- <https://github.com/AlexxIT/go2rtc/blob/master/internal/xiaomi/README.md>
+- <https://github.com/AlexxIT/go2rtc/issues/1982>（型号兼容列表）
