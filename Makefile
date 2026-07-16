@@ -1,4 +1,4 @@
-.PHONY: up down restart logs ps passwd
+.PHONY: up down restart logs ps
 
 up:
 	docker compose up -d
@@ -14,7 +14,3 @@ logs:
 
 ps:
 	docker compose ps
-
-# Usage: make passwd PASS=your-chosen-password
-passwd:
-	@./scripts/gen_password.sh "$(PASS)"
