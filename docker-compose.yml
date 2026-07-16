@@ -5,8 +5,13 @@ services:
   # a local session with the camera. Needs internet for the handshake only.
   miloco:
     container_name: miloco
-    image: ghcr.nju.edu.cn/miiot/miloco:main # community image, HD stream enabled
-    # image: ghcr.io/miiot/miloco:main       # use this if the mirror above is unreachable
+    # Pinned to a dated build, NOT `:main`. `:main` is a rolling tag and can
+    # break (e.g. a fastmcp dependency bump broke startup on 2026-07-16 with
+    # `FastMCP() no longer accepts on_duplicate_tools`, causing a bind/restart
+    # loop on :8000). Check https://github.com/miiot/miloco/pkgs/container/miloco
+    # for a newer dated tag if this one gets stale.
+    image: ghcr.nju.edu.cn/miiot/miloco:260618
+    # image: ghcr.io/miiot/miloco:260618     # use this if the mirror above is unreachable
     network_mode: host
     environment:
       BACKEND_PORT: ${MILOCO_PORT:-8000}
